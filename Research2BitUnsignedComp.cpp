@@ -6,24 +6,16 @@
 #include <vector>
 #include <fstream>
 #include <cstdlib>
+#include <algorithm>
 
 using namespace std;
 
-//balanced tree structure
-//O(logn) circuit depth
-// total number of comparisons/combination modules: O(n)
 // PART 1: Specify Logic Behavior
-// PART 2: Modularization using 1-bit comparators
+// PART 2: Modularization using P and Q modules
+// Compare linear and balanced-tree architectures
 // Output:
 // gt = 1 if A > B
 // gt = 0 otherwise
-// Convert an unsigned integer to an n-bit binary string
-
-//use n=1 bit to output 
-//what GENERAL function should help us distsinguish between the two values, n=1, n=2 bits
-//modular, linearly architecture, tree
-//what works/doesn't work for P, in the P and Q circuit structure
-//how should they be connected together?
 
 string toBinary(uint32_t value, unsigned n) {
     string result(n, '0');
@@ -69,138 +61,144 @@ void part1(unsigned n) {
 
     cout << "\nTruth Table for n = " << n << "\n\n";
 
-    // Print separate column headings for A bits
-    for (int i = static_cast<int>(n) - 1; i >= 0; i--) {
+    // Print A bit headings
+    for (int i = static_cast<int>(n) - 1; i >= 0; i--)
         cout << setw(5) << ("A" + to_string(i));
-    }
 
-    // Print separate column headings for B bits
-    for (int i = static_cast<int>(n) - 1; i >= 0; i--) {
+    // Print B bit headings
+    for (int i = static_cast<int>(n) - 1; i >= 0; i--)
         cout << setw(5) << ("B" + to_string(i));
-    }
 
-    // Print separate column headings for one-bit gt signals
-    for (int i = static_cast<int>(n) - 1; i >= 0; i--) {
-        cout << setw(5) << ("gt" + to_string(i));
-    }
+    // Print local one-bit greater-than signals
+    for (int i = static_cast<int>(n) - 1; i >= 0; i--)
+        cout << setw(5) << ("G" + to_string(i));
 
-    // Final comparator output
     cout << setw(5) << "gt" << "\n";
+    cout << string((3 * n + 1) * 5, '-') << "\n";
 
-    // Print separator line
-    for (unsigned i = 0; i < 3 * n + 1; i++) {
-        cout << "-----";
-    }
-    cout << "\n";
-
-    // Generate all input combinations
     for (uint32_t A = 0; A < total; A++) {
         for (uint32_t B = 0; B < total; B++) {
 
-            // Print each bit of A separately
-            for (int i = static_cast<int>(n) - 1; i >= 0; i--) {
-                bool a = ((A >> i) & 1u) != 0;
-                cout << setw(5) << a;
-            }
+            for (int i = static_cast<int>(n) - 1; i >= 0; i--)
+                cout << setw(5) << ((A >> i) & 1u);
 
-            // Print each bit of B separately
-            for (int i = static_cast<int>(n) - 1; i >= 0; i--) {
-                bool b = ((B >> i) & 1u) != 0;
-                cout << setw(5) << b;
-            }
+            for (int i = static_cast<int>(n) - 1; i >= 0; i--)
+                cout << setw(5) << ((B >> i) & 1u);
 
-            // Print each individual one-bit comparator result
             for (int i = static_cast<int>(n) - 1; i >= 0; i--) {
                 bool a = ((A >> i) & 1u) != 0;
                 bool b = ((B >> i) & 1u) != 0;
 
-                bool gtBit = a && !b;
-
-                cout << setw(5) << gtBit;
+                cout << setw(5) << (a && !b);
             }
 
-            // Print the final n-bit comparison result
-            bool gt = behavioralComparator(A, B);
-
-            cout << setw(5) << gt << "\n";
+            cout << setw(5)
+                << behavioralComparator(A, B) << "\n";
         }
     }
 }
 
 // PART 2: MODULARIZATION
-// Each comparator module produces two signals:
-// greater: whether A > B
-// equal: whether A == B
-
+// P module produces greater and equal signals
 struct CompareResult {
     bool greater;
     bool equal;
 };
 
-// One-bit comparator module
+// P: One-bit comparator module
 CompareResult compareOneBit(bool a, bool b) {
-
-    CompareResult result;
-
-    // G = a AND (NOT b)
-    result.greater = a && !b;
-
-    // E = a XNOR b
-    result.equal = (a == b);
-
-    return result;
+    return {
+        a && !b,
+        a == b
+    };
 }
 
-// Combine a higher-order comparator with a lower-order
-// comparator.
-//
+// Q for linear architecture
+// Accepts a, b and the previous comparison result
+// The previous result acts as carry-in
+CompareResult linearQ(
+    bool a,
+    bool b,
+    CompareResult carryIn
+) {
+    CompareResult current = compareOneBit(a, b);
+
+    return {
+        current.greater ||
+        (current.equal && carryIn.greater),
+
+        current.equal && carryIn.equal
+    };
+}
+
+// Q for tree architecture
+// Combines two comparison modules
 // G = G_high OR (E_high AND G_low)
 // E = E_high AND E_low
-
 CompareResult combineModules(
     CompareResult high,
     CompareResult low
 ) {
-    CompareResult result;
-
-    result.greater =
+    return {
         high.greater ||
-        (high.equal && low.greater);
+        (high.equal && low.greater),
 
-    result.equal =
-        high.equal && low.equal;
+        high.equal && low.equal
+    };
+}
+
+// Linear comparator
+// 1 P module followed by n-1 Q modules
+CompareResult linearComparator(
+    uint32_t A,
+    uint32_t B,
+    unsigned n
+) {
+    // P compares the least significant bits
+    CompareResult result = compareOneBit(
+        (A & 1u) != 0,
+        (B & 1u) != 0
+    );
+
+    // Each Q accepts the previous result as carry-in
+    for (unsigned i = 1; i < n; i++) {
+
+        bool a = ((A >> i) & 1u) != 0;
+        bool b = ((B >> i) & 1u) != 0;
+
+        result = linearQ(a, b, result);
+    }
 
     return result;
 }
 
-// Store a comparison module and its binary groups
+// Store tree comparison modules
 struct CircuitModule {
     CompareResult result;
     string bitsA;
     string bitsB;
-    string gNode;
-    string eNode;
+    string id;
 };
 
-// General n-bit modular comparator
-CompareResult modularComparator(
+// Tree comparator
+// n P modules followed by n-1 Q modules
+CompareResult treeComparator(
     uint32_t A,
     uint32_t B,
     unsigned n
 ) {
     vector<CompareResult> modules;
 
-    // Build one-bit comparison modules independently
+    // All P modules operate independently
     for (int i = static_cast<int>(n) - 1; i >= 0; i--) {
 
         bool a = ((A >> i) & 1u) != 0;
         bool b = ((B >> i) & 1u) != 0;
 
-        CompareResult current = compareOneBit(a, b);
-        modules.push_back(current);
+        modules.push_back(compareOneBit(a, b));
     }
 
-    // Combine adjacent modules in a balanced tree
+    // Q modules combine adjacent results
     while (modules.size() > 1) {
 
         vector<CompareResult> nextLevel;
@@ -208,12 +206,9 @@ CompareResult modularComparator(
         for (size_t i = 0; i < modules.size(); i += 2) {
 
             if (i + 1 < modules.size()) {
-
-                // Left module contains higher-order bits
-                CompareResult combined =
-                    combineModules(modules[i], modules[i + 1]);
-
-                nextLevel.push_back(combined);
+                nextLevel.push_back(
+                    combineModules(modules[i], modules[i + 1])
+                );
             }
             else {
                 nextLevel.push_back(modules[i]);
@@ -226,22 +221,8 @@ CompareResult modularComparator(
     return modules[0];
 }
 
-// Display Part 2 equations without another truth table
-void part2(unsigned n) {
-
-    cout << "\nPART 2: MODULARIZATION\n";
-
-    cout << "\nOne-Bit Comparator:\n";
-    cout << "G = a AND (NOT b)\n";
-    cout << "E = a XNOR b\n";
-
-    cout << "\nUsing a balanced-tree comparator for n = "
-        << n << "\n";
-}
-
-// Display the comparison outcome
-string comparisonText(const CompareResult& result) {
-
+// Display comparison result
+string comparisonText(CompareResult result) {
     if (result.greater)
         return "A > B";
 
@@ -251,8 +232,182 @@ string comparisonText(const CompareResult& result) {
     return "A < B";
 }
 
-// Display the balanced-tree circuit comparison path
-void printCircuitPath(
+// Analyze P module behavior
+void explainPAndQ() {
+
+    cout << "\nPART 2: MODULARIZATION\n";
+
+    cout << "\nP MODULE TRUTH TABLE\n";
+    cout << "a b | G E\n";
+
+    for (int a = 0; a <= 1; a++) {
+        for (int b = 0; b <= 1; b++) {
+
+            CompareResult r = compareOneBit(a, b);
+
+            cout << a << " " << b << " | "
+                << r.greater << " "
+                << r.equal << "\n";
+        }
+    }
+
+    cout << "\nP Module:\n";
+    cout << "G = a AND (NOT b)\n";
+    cout << "E = a XNOR b\n";
+
+    cout << "\nLinear Q Module:\n";
+    cout << "G_out = (a AND NOT b) OR "
+        << "((a XNOR b) AND G_in)\n";
+
+    cout << "E_out = (a XNOR b) AND E_in\n";
+
+    cout << "\nTree Q Module:\n";
+    cout << "G = G_high OR (E_high AND G_low)\n";
+    cout << "E = E_high AND E_low\n";
+}
+
+// Calculate balanced-tree Q depth
+unsigned calculateTreeDepth(unsigned n) {
+    unsigned depth = 0;
+
+    while (n > 1) {
+        n = (n + 1) / 2;
+        depth++;
+    }
+
+    return depth;
+}
+
+// Analyze both architectures using the truth table
+void analyzeArchitectures(unsigned n) {
+
+    uint32_t total = 1u << n;
+
+    uint64_t linearErrors = 0;
+    uint64_t treeErrors = 0;
+
+    for (uint32_t A = 0; A < total; A++) {
+        for (uint32_t B = 0; B < total; B++) {
+
+            bool expected = behavioralComparator(A, B);
+
+            if (linearComparator(A, B, n).greater != expected)
+                linearErrors++;
+
+            if (treeComparator(A, B, n).greater != expected)
+                treeErrors++;
+        }
+    }
+
+    unsigned linearP = 1;
+    unsigned linearQCount = n - 1;
+    unsigned linearDepth = n - 1;
+
+    unsigned treeP = n;
+    unsigned treeQCount = n - 1;
+    unsigned treeDepth = calculateTreeDepth(n);
+
+    cout << "\n================================\n";
+    cout << "LINEAR ARCHITECTURE\n";
+    cout << "================================\n";
+
+    cout << "P modules needed: " << linearP << "\n";
+    cout << "Q modules needed: " << linearQCount << "\n";
+    cout << "Q circuit depth: " << linearDepth << "\n";
+
+    cout << "Truth table mismatches: "
+        << linearErrors << "\n";
+
+    cout << "Connection:\n";
+    cout << "P -> Q -> Q -> ... -> Final Output\n";
+    cout << "Each Q receives the previous result as carry-in.\n";
+
+    cout << "\n================================\n";
+    cout << "TREE ARCHITECTURE\n";
+    cout << "================================\n";
+
+    cout << "P modules needed: " << treeP << "\n";
+    cout << "Q modules needed: " << treeQCount << "\n";
+    cout << "Q circuit depth: " << treeDepth << "\n";
+
+    cout << "Truth table mismatches: "
+        << treeErrors << "\n";
+
+    cout << "Connection:\n";
+    cout << "All P modules compare bits independently.\n";
+    cout << "Adjacent outputs feed Q modules.\n";
+    cout << "Q results combine until one output remains.\n";
+
+    cout << "\n================================\n";
+    cout << "ARCHITECTURE COMPARISON\n";
+    cout << "================================\n";
+
+    cout << "Linear: P=" << linearP
+        << ", Q=" << linearQCount
+        << ", Depth=" << linearDepth << "\n";
+
+    cout << "Tree:   P=" << treeP
+        << ", Q=" << treeQCount
+        << ", Depth=" << treeDepth << "\n";
+
+    if (linearErrors != 0 && treeErrors != 0) {
+        cout << "Selected: No valid architecture.\n";
+    }
+    else if (n == 1) {
+        cout << "Selected: P module only.\n";
+    }
+    else if (treeErrors == 0 &&
+        (linearErrors != 0 ||
+            treeDepth < linearDepth)) {
+
+        cout << "Selected: BALANCED TREE\n";
+        cout << "Reason: Lower dependent Q depth.\n";
+    }
+    else {
+        cout << "Selected: LINEAR\n";
+        cout << "Reason: Same or lower Q depth "
+            << "with fewer P modules.\n";
+    }
+}
+
+// Display linear circuit path
+void printLinearPath(
+    uint32_t A,
+    uint32_t B,
+    unsigned n
+) {
+    cout << "\nLINEAR CIRCUIT PATH\n";
+
+    bool a = (A & 1u) != 0;
+    bool b = (B & 1u) != 0;
+
+    CompareResult result = compareOneBit(a, b);
+
+    cout << "P Bit 0: " << a << " vs " << b
+        << " => G=" << result.greater
+        << ", E=" << result.equal << "\n";
+
+    for (unsigned i = 1; i < n; i++) {
+
+        a = ((A >> i) & 1u) != 0;
+        b = ((B >> i) & 1u) != 0;
+
+        result = linearQ(a, b, result);
+
+        cout << "Q Bit " << i << ": "
+            << a << " vs " << b
+            << " with carry-in"
+            << " => G=" << result.greater
+            << ", E=" << result.equal << "\n";
+    }
+
+    cout << "\nLINEAR FINAL OUTPUT\n";
+    cout << "gt = " << result.greater << "\n";
+    cout << "eq = " << result.equal << "\n";
+}
+
+// Display balanced-tree circuit path
+void printTreePath(
     uint32_t A,
     uint32_t B,
     unsigned n
@@ -261,7 +416,6 @@ void printCircuitPath(
 
     cout << "\nLevel 0: One-bit comparator modules\n";
 
-    // All individual bit comparisons
     for (int i = static_cast<int>(n) - 1; i >= 0; i--) {
 
         bool a = ((A >> i) & 1u) != 0;
@@ -269,13 +423,12 @@ void printCircuitPath(
 
         CompareResult current = compareOneBit(a, b);
 
-        CircuitModule module;
-
-        module.result = current;
-        module.bitsA = string(1, a ? '1' : '0');
-        module.bitsB = string(1, b ? '1' : '0');
-
-        modules.push_back(module);
+        modules.push_back({
+            current,
+            string(1, a ? '1' : '0'),
+            string(1, b ? '1' : '0'),
+            "P" + to_string(i)
+            });
 
         cout << "  Bit " << i << ": "
             << a << " vs " << b
@@ -285,7 +438,6 @@ void printCircuitPath(
 
     unsigned level = 1;
 
-    // Combine modules pairwise until one remains
     while (modules.size() > 1) {
 
         vector<CircuitModule> nextLevel;
@@ -311,33 +463,19 @@ void printCircuitPath(
                 nextLevel.push_back(combined);
 
                 cout << "  Compare "
-                    << combined.bitsA
-                    << " vs "
-                    << combined.bitsB
-                    << " => "
+                    << combined.bitsA << " vs "
+                    << combined.bitsB << " => "
                     << comparisonText(combined.result)
-                    << "; G="
-                    << combined.result.greater
-                    << ", E="
-                    << combined.result.equal
+                    << "; G=" << combined.result.greater
+                    << ", E=" << combined.result.equal
                     << "\n";
             }
             else {
-
-                // Carry unmatched module forward
                 nextLevel.push_back(modules[i]);
 
                 cout << "  Carry "
-                    << modules[i].bitsA
-                    << " vs "
-                    << modules[i].bitsB
-                    << " => "
-                    << comparisonText(modules[i].result)
-                    << "; G="
-                    << modules[i].result.greater
-                    << ", E="
-                    << modules[i].result.equal
-                    << "\n";
+                    << modules[i].bitsA << " vs "
+                    << modules[i].bitsB << "\n";
             }
         }
 
@@ -386,8 +524,9 @@ int main() {
     cout << "\nPART 1: SPECIFY LOGIC BEHAVIOR\n";
     part1(n);
 
-    // Part 2 prints its equations without another truth table
-    part2(n);
+    explainPAndQ();
+
+    analyzeArchitectures(n);
 
     cout << "\nCOMPARISON OF ENTERED NUMBERS\n";
 
@@ -397,14 +536,23 @@ int main() {
     cout << "\nPart 1 Result:\n";
     cout << "gt = " << behavioralComparator(A, B) << "\n";
 
-    CompareResult result = modularComparator(A, B, n);
+    CompareResult linear = linearComparator(A, B, n);
+    CompareResult tree = treeComparator(A, B, n);
 
-    cout << "\nPart 2 Result:\n";
-    cout << "gt = " << result.greater << "\n";
-    cout << "eq = " << result.equal << "\n";
+    cout << "\nLinear Result:\n";
+    cout << "gt = " << linear.greater << "\n";
+    cout << "eq = " << linear.equal << "\n";
 
-    // Print the comparisons in the exact requested format
-    printCircuitPath(A, B, n);
+    cout << "\nTree Result:\n";
+    cout << "gt = " << tree.greater << "\n";
+    cout << "eq = " << tree.equal << "\n";
+
+    // Show linear and tree comparison paths
+    printLinearPath(A, B, n);
+    printTreePath(A, B, n);
+
+    // Select tree only when it reduces Q depth
+    bool useTree = calculateTreeDepth(n) < n - 1;
 
     return 0;
 }
